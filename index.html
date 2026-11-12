@@ -198,7 +198,71 @@ $('logout').onclick=async()=>{await signOut(auth);isAdmin=false;people=[];adminV
 async function loadPeople(){if(!isAdmin)return;try{const snapshot=await getDocs(collection(db,'participants'));people=snapshot.docs.map(d=>({key:d.id,...d.data()}));render()}catch(e){feedback('adminFeedback','Gagal memuatkan senarai peserta.',true)}}
 function render(){$('total').textContent=people.length;$('eligible').textContent=people.filter(p=>!p.prize).length;$('wins').textContent=people.filter(p=>p.prize).length;$('drawBtn').disabled=!isAdmin||!people.some(p=>!p.prize);$('rows').innerHTML=people.map(p=>'<tr><td>'+clean(p.id)+'</td><td>'+clean(p.name)+'</td><td>'+clean(p.category)+'</td><td>'+(p.prize?'Menang':'Layak')+'</td></tr>').join('');$('winnerRows').innerHTML=people.filter(p=>p.prize).map(p=>'<tr><td>'+clean(p.id)+'</td><td>'+clean(p.name)+'</td><td>'+clean(p.prize)+'</td></tr>').join('')}
 $('drawBtn').onclick=async()=>{const btn=$('drawBtn');btn.disabled=true;try{await loadPeople();const pool=people.filter(p=>!p.prize);if(!pool.length)throw Error('Tiada peserta yang belum menang.');const rand=new Uint32Array(1);crypto.getRandomValues(rand);const chosen=pool[rand[0]%pool.length],prize=$('prize').value.trim()||'Hadiah Cabutan Bertuah';await runTransaction(db,async tx=>{const ref=doc(db,'participants',chosen.key),snap=await tx.get(ref);if(!snap.exists()||snap.data().prize)throw Error('Peserta ini telah menang. Sila buat cabutan semula.');tx.update(ref,{prize,wonAt:serverTimestamp()})});$('drawNumber').textContent=chosen.id;$('drawName').textContent=chosen.name;$('drawCelebrate').textContent='🏆 TAHNIAH PEMENANG! 🏆';$('drawCategory').textContent=prize;await loadPeople()}catch(e){alert('Cabutan gagal: '+e.message)}finally{render()}};
-$('export').onclick=()=>{if(!isAdmin)return;const rows=[['Nombor Cabutan','Nama','Telefon','Kategori','Jabatan','Hadiah'],...people.map(p=>[p.id,p.name,p.phone,p.category,p.department,p.prize||''])];const csv='\ufeff'+rows.map(r=>r.map(v=>'"'+String(v??'').replace(/^[=+@\-]/,"'").replace(/"/g,'""')+'"').join(',')).join('\r\n');const u=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=u;a.download='peserta-hsn-hospital-cyberjaya.csv';a.click();setTimeout(()=>URL.revokeObjectURL(u),1000)};
+
+$('export').onclick=()=>{
+  if(!isAdmin)return;
+
+  const formatDateTime=(timestamp)=>{
+    if(!timestamp || typeof timestamp.toDate!=='function')
+      return ['',''];
+
+    const date=timestamp.toDate();
+
+    const tarikh=new Intl.DateTimeFormat('en-GB',{
+      timeZone:'Asia/Kuala_Lumpur',
+      day:'2-digit',
+      month:'2-digit',
+      year:'numeric'
+    }).format(date);
+
+    const masa=new Intl.DateTimeFormat('en-GB',{
+      timeZone:'Asia/Kuala_Lumpur',
+      hour:'2-digit',
+      minute:'2-digit',
+      second:'2-digit',
+      hourCycle:'h23'
+    }).format(date);
+
+    return [tarikh,masa];
+  };
+
+  const rows=[
+    ['Nombor Cabutan','Nama','Telefon','Kategori','Jabatan / Unit','Tarikh Daftar','Masa Daftar','Hadiah'],
+    ...people.map(p=>{
+      const [tarikh,masa]=formatDateTime(p.createdAt);
+      return [
+        p.id,
+        p.name,
+        p.phone,
+        p.category,
+        p.department||'',
+        tarikh,
+        masa,
+        p.prize||''
+      ];
+    })
+  ];
+
+  const csv='\ufeff'+rows.map(r=>
+    r.map(v=>
+      '"'+String(v??'')
+        .replace(/^[=+@\-]/,"'")
+        .replace(/"/g,'""')+'"'
+    ).join(',')
+  ).join('\r\n');
+
+  const u=URL.createObjectURL(
+    new Blob([csv],{type:'text/csv;charset=utf-8'})
+  );
+
+  const a=document.createElement('a');
+  a.href=u;
+  a.download='peserta-hsn-hospital-cyberjaya.csv';
+  a.click();
+
+  setTimeout(()=>URL.revokeObjectURL(u),1000);
+};
+
 
 // Paparan cabutan pada projektor / TV. Escape untuk keluar.
 $('fullScreenBtn').addEventListener('click',async()=>{
